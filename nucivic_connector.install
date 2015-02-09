@@ -1,0 +1,22 @@
+<?php
+
+/**
+ * @file
+ * Installs, updates, and uninstalls NuCivic Connector.
+ */
+
+/**
+ * Implements hook_install()
+ */
+function nucivic_connector_install() {
+  variable_set('nucivic_server_address', NUCIVIC_SERVER);
+  nucivic_connector_add_site();
+  nucivic_connector_add_recipients();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function nucivic_connector_uninstall() {
+  variable_del('nucivic_connector_key');
+}

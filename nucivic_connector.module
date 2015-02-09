@@ -1,0 +1,202 @@
+<?php
+/**
+ * @file
+ * Module file for nucivic_connector module.
+ */
+
+define('NUCIVIC_SERVER', 'https://my.nucivic.com');
+
+/**
+ * Helper function to return the XML-RPC endpoint of the NuCivic server.
+ *
+ * @return string
+ *   A URL to the endpoint.
+ */
+function nucivic_connector_server() {
+  $server_base_url = variable_get('nucivic_server_address', NUCIVIC_SERVER);
+  return url($server_base_url . '/xmlrpc.php', array('external' => TRUE));
+}
+
+/**
+ * Adds the list of emaily update recipients to the NuCivic server.
+ */
+function nucivic_connector_add_recipients() {
+  $recipients = variable_get('update_notify_emails', array());
+  foreach ($recipients as $recipient) {
+    nucivic_connector_signup($recipient);
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Adds a submit handler to update the recipients list on the server when
+ * the website's update_settings form is submitted.
+ */
+function nucivic_connector_form_update_settings_alter(&$form, &$form_state, $form_id) {
+  $form['#submit'] = array('update_settings_submit', 'nucivic_connector_update_settings_submit');
+}
+
+/**
+ * Submit handler for update_settings form.
+ *
+ * Clears the previous list of email recipients ffor this website from
+ * the server, and replaces it with the current list.
+ *
+ * @see update_settings()
+ */
+function nucivic_connector_update_settings_submit($form, $form_state) {
+  $auth_key = variable_get('nucivic_connector_key', FALSE);
+  if ($auth_key) {
+    nucivic_connector_clear_signups($auth_key);
+  }
+  else {
+    nucivic_connector_add_site();
+  }
+  nucivic_connector_add_recipients();
+}
+
+//
+//  The XML-RPC client interface part of the module starts here.
+//
+
+/**
+ * Submit a website to the NuCivic server.
+ *
+ * Use the nucivic_server.add_site method to submit website info to the server
+ * and retrieve a unique authorization key.
+ *
+ * @see xmlrpc()
+ * @see xmlrpc_errno()
+ * @see xmlrpc_error_msg()
+ */
+function nucivic_connector_add_site() {
+  // Define the method to call. xmlrpc() requires that all the
+  // information related to the called method is passed as an array in the form
+  // of 'method_name' => arguments_array.
+  $base_url = $GLOBALS['base_url'];
+  $drupal_version = VERSION;
+  $profile = drupal_get_profile();
+  if ($profile == 'standard') {
+    $profile_name = 'Standard Drupal';
+    $profile_version = '';
+  }
+  else {
+    $info = system_get_info('module', $profile);
+    $profile_name = $info['name'];
+    $profile_version = $info['version'];
+  }
+
+  $options = array(
+    'nucivic_server.add_site' => array(
+      (string) $base_url,
+      (string) $drupal_version,
+      (string) $profile,
+      (string) $profile_name,
+      (string) $profile_version,
+    ),
+  );
+  // Make the xmlrpc request and process the results.
+  $result = xmlrpc(nucivic_connector_server(), $options);
+  if ($result === FALSE) {
+    drupal_set_message(
+      t('Error return from xmlrpc(): Error: @errno, Message: @message',
+      array('@errno' => xmlrpc_errno(), '@message' => xmlrpc_error_msg())),
+      'error'
+    );
+  }
+  else {
+    // Store the aauthorization key for this website.
+    variable_set('nucivic_connector_key', $result);
+  }
+}
+
+/**
+ * Submit an email address to the NuCivic server.
+ *
+ * Use the server's nucivic_server.signup method to submit a single email
+ * address and report the result as a Drupal message.
+ *
+ * @param string $email
+ *   An email address to sign up for notifications.
+ *
+ * @see xmlrpc()
+ * @see xmlrpc_errno()
+ * @see xmlrpc_error_msg()
+ */
+function nucivic_connector_signup($email) {
+  // Get the authorization key, or add the site to the server if an auth key
+  // doesn't already exist.
+  $auth_key = variable_get('nucivic_connector_key', FALSE);
+  if (!$auth_key) {
+    nucivic_connector_add_site();
+  }
+  $options = array(
+    'nucivic_server.signup' => array(
+      (string) $auth_key,
+      (string) $email,
+    ),
+  );
+  // Make the xmlrpc request and process the results.
+  $result = xmlrpc(nucivic_connector_server(), $options);
+  if ($result === FALSE) {
+    watchdog('nucivic_connector',
+      'Error returned from xmlrpc() while trying to subscribe @email to NuCivic updates. Error: @errno, Message: @message',
+      array(
+        '@email' => $email,
+        '@errno' => xmlrpc_errno(),
+        '@message' => xmlrpc_error_msg()
+      ),
+      WATCHDOG_ERROR
+    );
+  }
+  else {
+    watchdog(
+      'nucivic_connector',
+      'Signed up @email to receive NuCivic notifications',
+      array('@email' => $email),
+      WATCHDOG_INFO
+    );
+  }
+}
+
+/**
+ * Clear the list of email recipients for this site from the NuCivic server.
+ *
+ * Use the server's nucivic_server.clear_signups method to remove the list of
+ * recipient email addresses for this site.
+ *
+ * @param string $auth_key
+ *   The authorization key for this website.
+ *
+ * @see xmlrpc()
+ * @see xmlrpc_errno()
+ * @see xmlrpc_error_msg()
+ */
+function nucivic_connector_clear_signups($auth_key){
+  $options = array(
+    'nucivic_server.clear_signups' => array(
+      (string) $auth_key,
+    ),
+  );
+  // Make the xmlrpc request and process the results.
+  $result = xmlrpc(nucivic_connector_server(), $options);
+  if ($result === FALSE) {
+    watchdog('nucivic_connector',
+      'Error returned from xmlrpc() while trying to clear the recipients list from NuCivic updates. Error: @errno, Message: @message',
+      array(
+        '@errno' => xmlrpc_errno(),
+        '@message' => xmlrpc_error_msg()
+      ),
+      WATCHDOG_ERROR
+    );
+  }
+  else {
+    watchdog(
+      'nucivic_connector',
+      'Cleared the recipients list from the NuCivic notifications server.',
+      array(),
+      WATCHDOG_INFO
+    );
+  }
+}

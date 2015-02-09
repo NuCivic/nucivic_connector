@@ -1,0 +1,6 @@
+name = NuCivic Connector
+description = Sign up to receive notifications from NuCivic.
+core = 7.x
+version = 7.x-1.x
+package = NuCivic
+dependencies[] = update
