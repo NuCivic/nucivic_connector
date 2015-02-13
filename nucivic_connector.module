@@ -23,7 +23,7 @@ function nucivic_connector_server() {
 function nucivic_connector_add_recipients() {
   $recipients = variable_get('update_notify_emails', array());
   foreach ($recipients as $recipient) {
-    nucivic_connector_signup($recipient);
+    nucivic_connector_signup(check_plain($recipient));
   }
 }
 
